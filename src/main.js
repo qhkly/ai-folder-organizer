@@ -12,6 +12,10 @@ function $(id) {
   return document.getElementById(id);
 }
 
+function t(key, params) {
+  return window.i18n.t(key, params);
+}
+
 function initTheme() {
   const saved = localStorage.getItem('theme');
   if (saved) {
@@ -43,6 +47,18 @@ function log(message, type = 'info') {
   $('log-output').scrollTop = $('log-output').scrollHeight;
 }
 
+function translatePayload(payload) {
+  try {
+    const parsed = JSON.parse(payload);
+    if (parsed && parsed.key) {
+      return t(parsed.key, parsed.params);
+    }
+  } catch {
+    // not a keyed event, fall through
+  }
+  return payload;
+}
+
 function escapeHtml(value) {
   return String(value)
     .replaceAll('&', '&amp;')
@@ -63,7 +79,7 @@ async function loadSettings() {
       await scanCurrentDirectory();
     }
   } catch (e) {
-    log(`加载设置失败: ${e}`, 'error');
+    log(`${t('log.load_settings_failed')}: ${e}`, 'error');
   }
 }
 
@@ -84,7 +100,7 @@ async function saveSettingsFromModal() {
   closeModal();
   updateDirLabel();
   await refreshUndoState();
-  log('设置已保存', 'ok');
+  log(t('log.settings_saved'), 'ok');
 }
 
 async function persistLastDir(path) {
@@ -97,8 +113,8 @@ async function persistLastDir(path) {
 function updateDirLabel() {
   const label = $('current-dir');
   if (!currentDir) {
-    label.textContent = '未选择目录';
-    label.title = '请选择目录';
+    label.textContent = t('toolbar.no_dir');
+    label.title = t('toolbar.no_dir');
     return;
   }
   label.textContent = currentDir.replace(/^.*[\/\\]/, '') || currentDir;
@@ -109,7 +125,7 @@ async function pickDirectory() {
   const selected = await open({
     directory: true,
     multiple: false,
-    title: '选择要整理的目录',
+    title: t('dialog.pick_dir_title'),
   });
   if (!selected) {
     return;
@@ -125,18 +141,18 @@ async function scanCurrentDirectory() {
     return;
   }
   setBusy(true);
-  log(`扫描目录: ${currentDir}`);
+  log(`${t('log.scanning')}: ${currentDir}`);
   try {
     currentTree = await invoke('scan_directory', { path: currentDir });
     renderTree();
     $('btn-analyze').disabled = currentTree.entries.length === 0;
     $('btn-rescan').disabled = false;
-    log(`扫描完成，共 ${currentTree.entries.length} 个条目`, 'ok');
+    log(t('log.scan_done', { count: currentTree.entries.length }), 'ok');
   } catch (e) {
     currentTree = null;
-    $('tree-list').innerHTML = '<div class="empty-state">扫描失败</div>';
-    $('tree-count').textContent = '扫描失败';
-    log(`扫描失败: ${e}`, 'error');
+    $('tree-list').innerHTML = `<div class="empty-state">${escapeHtml(t('tree.scan_failed'))}</div>`;
+    $('tree-count').textContent = t('tree.scan_failed');
+    log(`${t('log.scan_failed')}: ${e}`, 'error');
   } finally {
     setBusy(false);
   }
@@ -144,9 +160,9 @@ async function scanCurrentDirectory() {
 
 function renderTree() {
   const entries = currentTree?.entries || [];
-  $('tree-count').textContent = `${entries.length} 个条目，最多 ${currentTree.max_depth} 层`;
+  $('tree-count').textContent = t('tree.count', { count: entries.length, depth: currentTree.max_depth });
   if (!entries.length) {
-    $('tree-list').innerHTML = '<div class="empty-state">目录为空</div>';
+    $('tree-list').innerHTML = `<div class="empty-state">${escapeHtml(t('tree.empty_dir'))}</div>`;
     return;
   }
   $('tree-list').innerHTML = entries.map((entry) => {
@@ -171,22 +187,23 @@ async function analyze() {
   }
   if (!settings.api_key) {
     openModal();
-    log('请先填写 Anthropic API Key', 'error');
+    log(t('log.no_api_key'), 'error');
     return;
   }
   setBusy(true);
   clearPlan();
-  log('开始 AI 分析...');
+  log(t('log.analyzing'));
   try {
     currentPlan = await invoke('analyze_with_ai', {
       tree: currentTree,
       apiKey: settings.api_key,
       model: settings.model,
+      lang: window.i18n.currentLang,
     });
     renderPlan();
-    log('AI 整理方案已生成', 'ok');
+    log(t('log.analyze_done'), 'ok');
   } catch (e) {
-    log(`AI 分析失败: ${e}`, 'error');
+    log(`${t('log.analyze_failed')}: ${e}`, 'error');
   } finally {
     setBusy(false);
   }
@@ -194,13 +211,13 @@ async function analyze() {
 
 function renderPlan() {
   const ops = currentPlan?.operations || [];
-  $('plan-description').textContent = currentPlan?.description || '无说明';
-  $('plan-count').textContent = `${ops.length} 个操作`;
+  $('plan-description').textContent = currentPlan?.description || t('plan.no_description');
+  $('plan-count').textContent = t('plan.op_count', { count: ops.length });
   $('btn-clear-plan').disabled = ops.length === 0;
   $('btn-execute').disabled = ops.length === 0 || busy;
 
   if (!ops.length) {
-    $('plan-list').innerHTML = '<div class="empty-state">AI 没有建议操作</div>';
+    $('plan-list').innerHTML = `<div class="empty-state">${escapeHtml(t('plan.no_ops'))}</div>`;
     return;
   }
 
@@ -226,9 +243,9 @@ function renderOpPaths(op) {
 
 function clearPlan() {
   currentPlan = null;
-  $('plan-description').textContent = 'AI 方案会显示在这里，执行前请逐条审阅。';
-  $('plan-count').textContent = '尚未分析';
-  $('plan-list').innerHTML = '<div class="empty-state">扫描后点击底部“分析”</div>';
+  $('plan-description').textContent = t('plan.description_placeholder');
+  $('plan-count').textContent = t('plan.not_analyzed');
+  $('plan-list').innerHTML = `<div class="empty-state">${escapeHtml(t('plan.empty_state'))}</div>`;
   $('btn-clear-plan').disabled = true;
   $('btn-execute').disabled = true;
 }
@@ -237,7 +254,7 @@ async function executePlan() {
   if (!currentPlan?.operations?.length || !currentDir || busy) {
     return;
   }
-  if (!confirm(`即将执行 ${currentPlan.operations.length} 个文件操作。请确认你已审阅方案。`)) {
+  if (!confirm(t('dialog.execute_confirm', { count: currentPlan.operations.length }))) {
     return;
   }
   setBusy(true);
@@ -246,12 +263,12 @@ async function executePlan() {
       operations: currentPlan.operations,
       baseDir: currentDir,
     });
-    log('整理已执行完成', 'ok');
+    log(t('log.execute_done'), 'ok');
     clearPlan();
     await refreshUndoState();
     await scanCurrentDirectory();
   } catch (e) {
-    log(`执行失败: ${e}`, 'error');
+    log(`${t('log.execute_failed')}: ${e}`, 'error');
   } finally {
     setBusy(false);
   }
@@ -261,17 +278,17 @@ async function undoPlan() {
   if (!currentDir || busy) {
     return;
   }
-  if (!confirm('确定要撤销上一次整理吗？')) {
+  if (!confirm(t('dialog.undo_confirm'))) {
     return;
   }
   setBusy(true);
   try {
     await invoke('undo_plan', { baseDir: currentDir });
-    log('撤销完成', 'ok');
+    log(t('log.undo_done'), 'ok');
     await refreshUndoState();
     await scanCurrentDirectory();
   } catch (e) {
-    log(`撤销失败: ${e}`, 'error');
+    log(`${t('log.undo_failed')}: ${e}`, 'error');
   } finally {
     setBusy(false);
   }
@@ -317,9 +334,24 @@ function formatBytes(bytes) {
   return `${value.toFixed(value >= 10 || idx === 0 ? 0 : 1)} ${units[idx]}`;
 }
 
+function handleLangChange() {
+  updateDirLabel();
+  if (currentTree) {
+    renderTree();
+  } else {
+    $('tree-count').textContent = t('tree.waiting');
+    $('tree-list').innerHTML = `<div class="empty-state">${escapeHtml(t('tree.empty_state'))}</div>`;
+  }
+  if (currentPlan) {
+    renderPlan();
+  } else {
+    clearPlan();
+  }
+}
+
 async function initEvents() {
-  await listen('ai_output', (event) => log(event.payload, 'info'));
-  await listen('exec_progress', (event) => log(event.payload, 'info'));
+  await listen('ai_output', (event) => log(translatePayload(event.payload), 'info'));
+  await listen('exec_progress', (event) => log(translatePayload(event.payload), 'info'));
 
   $('btn-pick-dir').addEventListener('click', pickDirectory);
   $('btn-rescan').addEventListener('click', scanCurrentDirectory);
@@ -330,10 +362,15 @@ async function initEvents() {
   $('btn-log-clear').addEventListener('click', () => { $('log-output').innerHTML = ''; });
   $('btn-theme').addEventListener('click', toggleTheme);
   $('btn-settings').addEventListener('click', openModal);
-  $('btn-settings-save').addEventListener('click', () => saveSettingsFromModal().catch((e) => log(`保存设置失败: ${e}`, 'error')));
+  $('btn-lang').addEventListener('click', () => window.i18n.toggleLang());
+  $('btn-settings-save').addEventListener('click', () => saveSettingsFromModal().catch((e) => log(`${t('log.save_settings_failed')}: ${e}`, 'error')));
   $('btn-settings-cancel').addEventListener('click', closeModal);
   $('settings-modal').querySelector('.modal-backdrop').addEventListener('click', closeModal);
+
+  document.addEventListener('langchange', handleLangChange);
 }
 
 initTheme();
-initEvents().then(loadSettings).catch((e) => log(`初始化失败: ${e}`, 'error'));
+// Set initial dir label via i18n (i18n.js has already run at this point)
+updateDirLabel();
+initEvents().then(loadSettings).catch((e) => log(`${t('log.init_failed')}: ${e}`, 'error'));

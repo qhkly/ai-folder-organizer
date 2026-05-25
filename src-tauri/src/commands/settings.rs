@@ -20,7 +20,7 @@ impl Default for Settings {
 
 fn settings_path() -> Result<PathBuf, String> {
     dirs::config_dir()
-        .ok_or_else(|| "无法获取配置目录".to_string())
+        .ok_or_else(|| "Could not determine config directory".to_string())
         .map(|d| d.join("ai-folder-organizer").join("settings.json"))
 }
 
@@ -32,8 +32,8 @@ pub async fn load_settings() -> Result<Settings, String> {
     }
     let raw = tokio::fs::read_to_string(&path)
         .await
-        .map_err(|e| format!("读取配置失败: {}", e))?;
-    serde_json::from_str(&raw).map_err(|e| format!("解析配置失败: {}", e))
+        .map_err(|e| format!("Failed to read config: {}", e))?;
+    serde_json::from_str(&raw).map_err(|e| format!("Failed to parse config: {}", e))
 }
 
 #[tauri::command]
@@ -42,11 +42,11 @@ pub async fn save_settings(settings: Settings) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         tokio::fs::create_dir_all(parent)
             .await
-            .map_err(|e| format!("创建配置目录失败: {}", e))?;
+            .map_err(|e| format!("Failed to create config directory: {}", e))?;
     }
     let json =
-        serde_json::to_string_pretty(&settings).map_err(|e| format!("序列化配置失败: {}", e))?;
+        serde_json::to_string_pretty(&settings).map_err(|e| format!("Failed to serialize config: {}", e))?;
     tokio::fs::write(&path, json)
         .await
-        .map_err(|e| format!("保存配置失败: {}", e))
+        .map_err(|e| format!("Failed to save config: {}", e))
 }

@@ -1,22 +1,24 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>AI Folder Organizer</title>
   <link rel="stylesheet" href="styles.css" />
+  <script src="i18n.js"></script>
 </head>
 <body>
 <div id="app">
   <header id="toolbar">
     <span id="toolbar-title">AI Folder Organizer</span>
     <div id="dir-row">
-      <button id="btn-pick-dir" class="btn-ghost btn-sm" title="选择目录">📁</button>
-      <span id="current-dir" title="当前目录">未选择目录</span>
+      <button id="btn-pick-dir" class="btn-ghost btn-sm" data-i18n-title="toolbar.pick_dir_title">📁</button>
+      <span id="current-dir"></span>
     </div>
     <div id="toolbar-actions">
-      <button id="btn-settings" class="btn-ghost" title="设置">⚙ API Key</button>
-      <button id="btn-theme" class="btn-ghost btn-sm" title="切换主题"></button>
+      <button id="btn-settings" class="btn-ghost" data-i18n="toolbar.settings_btn" data-i18n-title="toolbar.settings_title">⚙ API Key</button>
+      <button id="btn-lang" class="btn-ghost btn-sm">EN</button>
+      <button id="btn-theme" class="btn-ghost btn-sm" data-i18n-title="toolbar.theme_title"></button>
     </div>
   </header>
 
@@ -24,37 +26,37 @@
     <section id="tree-panel" class="pane">
       <div class="pane-header">
         <div>
-          <h2>当前目录树</h2>
-          <p id="tree-count">等待扫描</p>
+          <h2 data-i18n="tree.title">当前目录树</h2>
+          <p id="tree-count" data-i18n="tree.waiting">等待扫描</p>
         </div>
-        <button id="btn-rescan" class="btn-ghost btn-sm" disabled>刷新</button>
+        <button id="btn-rescan" class="btn-ghost btn-sm" disabled data-i18n="tree.refresh">刷新</button>
       </div>
       <div id="tree-list">
-        <div class="empty-state">点击左上角选择一个测试目录</div>
+        <div class="empty-state" data-i18n="tree.empty_state">点击左上角选择一个测试目录</div>
       </div>
     </section>
 
     <section id="plan-panel" class="pane">
       <div class="pane-header">
         <div>
-          <h2>整理方案预览</h2>
-          <p id="plan-count">尚未分析</p>
+          <h2 data-i18n="plan.title">整理方案预览</h2>
+          <p id="plan-count" data-i18n="plan.not_analyzed">尚未分析</p>
         </div>
-        <button id="btn-clear-plan" class="btn-ghost btn-sm" disabled>清空</button>
+        <button id="btn-clear-plan" class="btn-ghost btn-sm" disabled data-i18n="plan.clear">清空</button>
       </div>
-      <div id="plan-description">AI 方案会显示在这里，执行前请逐条审阅。</div>
+      <div id="plan-description"></div>
       <div id="plan-list">
-        <div class="empty-state">扫描后点击底部“分析”</div>
+        <div class="empty-state" data-i18n="plan.empty_state">扫描后点击底部"分析"</div>
       </div>
     </section>
   </main>
 
   <footer id="bottom-bar">
     <div id="bottom-actions">
-      <button id="btn-analyze" class="btn-primary" disabled>分析</button>
-      <button id="btn-execute" class="btn-primary" disabled>执行整理</button>
-      <button id="btn-undo" class="btn-ghost" disabled>↩ 撤销</button>
-      <button id="btn-log-clear" class="btn-ghost btn-sm">清空日志</button>
+      <button id="btn-analyze" class="btn-primary" disabled data-i18n="btn.analyze">分析</button>
+      <button id="btn-execute" class="btn-primary" disabled data-i18n="btn.execute">执行整理</button>
+      <button id="btn-undo" class="btn-ghost" disabled data-i18n="btn.undo">↩ 撤销</button>
+      <button id="btn-log-clear" class="btn-ghost btn-sm" data-i18n="btn.clear_log">清空日志</button>
     </div>
     <div id="log-output"></div>
   </footer>
@@ -62,25 +64,25 @@
   <div id="settings-modal" class="modal hidden">
     <div class="modal-backdrop"></div>
     <div class="modal-box">
-      <h2>设置</h2>
+      <h2 data-i18n="settings.title">设置</h2>
       <div class="form-group">
-        <label for="s-api-key">Anthropic API Key</label>
+        <label for="s-api-key" data-i18n="settings.api_key_label">Anthropic API Key</label>
         <input id="s-api-key" type="password" autocomplete="off" placeholder="sk-ant-..." />
       </div>
       <div class="form-group">
-        <label for="s-model">模型</label>
+        <label for="s-model" data-i18n="settings.model">模型</label>
         <select id="s-model">
           <option value="claude-opus-4-7">claude-opus-4-7</option>
           <option value="claude-sonnet-4-6">claude-sonnet-4-6</option>
         </select>
       </div>
       <div class="form-group">
-        <label for="s-last-dir">上次目录</label>
+        <label for="s-last-dir" data-i18n="settings.last_dir">上次目录</label>
         <input id="s-last-dir" type="text" placeholder="/path/to/folder" />
       </div>
       <div class="modal-actions">
-        <button id="btn-settings-save" class="btn-primary">保存</button>
-        <button id="btn-settings-cancel" class="btn-ghost">取消</button>
+        <button id="btn-settings-save" class="btn-primary" data-i18n="settings.save">保存</button>
+        <button id="btn-settings-cancel" class="btn-ghost" data-i18n="settings.cancel">取消</button>
       </div>
     </div>
   </div>

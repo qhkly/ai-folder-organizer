@@ -1,5 +1,6 @@
 use super::types::{FileOp, UndoManifest};
 use chrono::Local;
+use serde_json::json;
 use std::path::{Component, Path, PathBuf};
 use tauri::{AppHandle, Emitter};
 
@@ -18,12 +19,12 @@ pub async fn execute_plan(
 ) -> Result<UndoManifest, String> {
     let base = normalize_base(&base_dir)?;
     if operations.is_empty() {
-        return Err("没有可执行的整理操作".to_string());
+        return Err("No operations to execute".to_string());
     }
 
     let manifest_path = base.join(UNDO_FILE);
     if manifest_path.exists() {
-        return Err("已存在撤销清单，请先撤销或手动处理 .ai-organizer-undo.json".to_string());
+        return Err("Undo manifest already exists. Please undo or manually remove .ai-organizer-undo.json first".to_string());
     }
 
     validate_operations(&base, &operations)?;
@@ -37,7 +38,7 @@ pub async fn execute_plan(
     for (idx, op) in operations.iter().enumerate() {
         app.emit(
             "exec_progress",
-            format!("执行 {}/{}: {}", idx + 1, operations.len(), describe_op(op)),
+            json!({"key": "event.exec.executing", "params": {"idx": idx + 1, "total": operations.len(), "op": describe_op(op)}}).to_string(),
         )
         .ok();
         apply_op(&base, op)?;
@@ -48,7 +49,7 @@ pub async fn execute_plan(
     }
 
     write_manifest(&manifest_path, &manifest)?;
-    app.emit("exec_progress", "整理完成，撤销清单已保存。").ok();
+    app.emit("exec_progress", r#"{"key":"event.exec.done"}"#).ok();
     Ok(manifest)
 }
 
@@ -57,47 +58,42 @@ pub async fn undo_plan(app: AppHandle, base_dir: String) -> Result<(), String> {
     let base = normalize_base(&base_dir)?;
     let manifest_path = base.join(UNDO_FILE);
     if !manifest_path.exists() {
-        return Err("没有找到撤销清单".to_string());
+        return Err("No undo manifest found".to_string());
     }
 
     let raw = std::fs::read_to_string(&manifest_path)
-        .map_err(|e| format!("读取撤销清单失败: {}", e))?;
+        .map_err(|e| format!("Failed to read undo manifest: {}", e))?;
     let manifest: UndoManifest =
-        serde_json::from_str(&raw).map_err(|e| format!("解析撤销清单失败: {}", e))?;
+        serde_json::from_str(&raw).map_err(|e| format!("Failed to parse undo manifest: {}", e))?;
     validate_operations(&base, &manifest.reverse_ops)?;
 
     for (idx, op) in manifest.reverse_ops.iter().enumerate() {
         app.emit(
             "exec_progress",
-            format!(
-                "撤销 {}/{}: {}",
-                idx + 1,
-                manifest.reverse_ops.len(),
-                describe_op(op)
-            ),
+            json!({"key": "event.exec.undoing", "params": {"idx": idx + 1, "total": manifest.reverse_ops.len(), "op": describe_op(op)}}).to_string(),
         )
         .ok();
         apply_op(&base, op)?;
     }
 
-    std::fs::remove_file(&manifest_path).map_err(|e| format!("删除撤销清单失败: {}", e))?;
-    app.emit("exec_progress", "撤销完成。").ok();
+    std::fs::remove_file(&manifest_path).map_err(|e| format!("Failed to remove undo manifest: {}", e))?;
+    app.emit("exec_progress", r#"{"key":"event.exec.undo_done"}"#).ok();
     Ok(())
 }
 
 fn normalize_base(base_dir: &str) -> Result<PathBuf, String> {
     let base = PathBuf::from(base_dir);
     if !base.exists() || !base.is_dir() {
-        return Err(format!("目录不存在或不是目录: {}", base_dir));
+        return Err(format!("Directory not found or not a directory: {}", base_dir));
     }
     base.canonicalize()
-        .map_err(|e| format!("解析目录真实路径失败: {}", e))
+        .map_err(|e| format!("Failed to resolve canonical path: {}", e))
 }
 
 fn write_manifest(path: &Path, manifest: &UndoManifest) -> Result<(), String> {
     let json = serde_json::to_string_pretty(manifest)
-        .map_err(|e| format!("序列化撤销清单失败: {}", e))?;
-    std::fs::write(path, json).map_err(|e| format!("保存撤销清单失败: {}", e))
+        .map_err(|e| format!("Failed to serialize undo manifest: {}", e))?;
+    std::fs::write(path, json).map_err(|e| format!("Failed to save undo manifest: {}", e))
 }
 
 fn validate_operations(base: &Path, operations: &[FileOp]) -> Result<(), String> {
@@ -107,22 +103,22 @@ fn validate_operations(base: &Path, operations: &[FileOp]) -> Result<(), String>
                 let path = op
                     .path
                     .as_ref()
-                    .ok_or_else(|| format!("{} 操作缺少 path", op.op_type))?;
+                    .ok_or_else(|| format!("{} operation missing 'path'", op.op_type))?;
                 let _ = safe_join(base, path)?;
             }
             "move" | "rename" => {
                 let from = op
                     .from
                     .as_ref()
-                    .ok_or_else(|| format!("{} 操作缺少 from", op.op_type))?;
+                    .ok_or_else(|| format!("{} operation missing 'from'", op.op_type))?;
                 let to = op
                     .to
                     .as_ref()
-                    .ok_or_else(|| format!("{} 操作缺少 to", op.op_type))?;
+                    .ok_or_else(|| format!("{} operation missing 'to'", op.op_type))?;
                 let _ = safe_join(base, from)?;
                 let _ = safe_join(base, to)?;
             }
-            other => return Err(format!("不支持的操作类型: {}", other)),
+            other => return Err(format!("Unsupported operation type: {}", other)),
         }
     }
     Ok(())
@@ -133,13 +129,13 @@ fn apply_op(base: &Path, op: &FileOp) -> Result<(), String> {
         "mkdir" => {
             let path = safe_join(base, required_path(op)?)?;
             std::fs::create_dir_all(&path)
-                .map_err(|e| format!("创建目录失败 {}: {}", path.display(), e))
+                .map_err(|e| format!("Failed to create directory {}: {}", path.display(), e))
         }
         "rmdir" => {
             let path = safe_join(base, required_path(op)?)?;
             if path.exists() {
                 std::fs::remove_dir(&path)
-                    .map_err(|e| format!("删除空目录失败 {}: {}", path.display(), e))?;
+                    .map_err(|e| format!("Failed to remove empty directory {}: {}", path.display(), e))?;
             }
             Ok(())
         }
@@ -147,19 +143,19 @@ fn apply_op(base: &Path, op: &FileOp) -> Result<(), String> {
             let from = safe_join(base, required_from(op)?)?;
             let to = safe_join(base, required_to(op)?)?;
             if !from.exists() {
-                return Err(format!("源路径不存在: {}", from.display()));
+                return Err(format!("Source path does not exist: {}", from.display()));
             }
             if to.exists() {
-                return Err(format!("目标路径已存在，已停止以避免覆盖: {}", to.display()));
+                return Err(format!("Destination already exists, stopped to avoid overwrite: {}", to.display()));
             }
             if let Some(parent) = to.parent() {
                 std::fs::create_dir_all(parent)
-                    .map_err(|e| format!("创建目标父目录失败 {}: {}", parent.display(), e))?;
+                    .map_err(|e| format!("Failed to create destination parent directory {}: {}", parent.display(), e))?;
             }
             std::fs::rename(&from, &to)
-                .map_err(|e| format!("移动失败 {} -> {}: {}", from.display(), to.display(), e))
+                .map_err(|e| format!("Move failed {} -> {}: {}", from.display(), to.display(), e))
         }
-        other => Err(format!("不支持的操作类型: {}", other)),
+        other => Err(format!("Unsupported operation type: {}", other)),
     }
 }
 
@@ -184,37 +180,37 @@ fn reverse_for(op: &FileOp) -> Option<FileOp> {
 fn required_path(op: &FileOp) -> Result<&str, String> {
     op.path
         .as_deref()
-        .ok_or_else(|| format!("{} 操作缺少 path", op.op_type))
+        .ok_or_else(|| format!("{} operation missing 'path'", op.op_type))
 }
 
 fn required_from(op: &FileOp) -> Result<&str, String> {
     op.from
         .as_deref()
-        .ok_or_else(|| format!("{} 操作缺少 from", op.op_type))
+        .ok_or_else(|| format!("{} operation missing 'from'", op.op_type))
 }
 
 fn required_to(op: &FileOp) -> Result<&str, String> {
     op.to
         .as_deref()
-        .ok_or_else(|| format!("{} 操作缺少 to", op.op_type))
+        .ok_or_else(|| format!("{} operation missing 'to'", op.op_type))
 }
 
 fn safe_join(base: &Path, relative: &str) -> Result<PathBuf, String> {
     let trimmed = relative.trim().trim_start_matches("./");
     if trimmed.is_empty() {
-        return Err("路径不能为空".to_string());
+        return Err("Path cannot be empty".to_string());
     }
     let rel_path = Path::new(trimmed);
     if rel_path.is_absolute() {
-        return Err(format!("不允许绝对路径: {}", relative));
+        return Err(format!("Absolute paths are not allowed: {}", relative));
     }
     if trimmed.starts_with('~') {
-        return Err(format!("不允许 home 简写路径: {}", relative));
+        return Err(format!("Home-relative paths are not allowed: {}", relative));
     }
     for component in rel_path.components() {
         match component {
             Component::Normal(_) => {}
-            _ => return Err(format!("不安全路径: {}", relative)),
+            _ => return Err(format!("Unsafe path component detected: {}", relative)),
         }
     }
     Ok(base.join(rel_path))

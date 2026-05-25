@@ -10,10 +10,10 @@ const MAX_DEPTH: usize = 5;
 pub async fn scan_directory(path: String) -> Result<DirTree, String> {
     let base = PathBuf::from(&path);
     if !base.exists() {
-        return Err(format!("目录不存在: {}", path));
+        return Err(format!("Directory not found: {}", path));
     }
     if !base.is_dir() {
-        return Err(format!("不是目录: {}", path));
+        return Err(format!("Not a directory: {}", path));
     }
 
     let mut entries = Vec::new();
@@ -41,9 +41,9 @@ fn scan_level(
         return Ok(());
     }
 
-    let read_dir = fs::read_dir(current).map_err(|e| format!("读取目录失败: {}", e))?;
+    let read_dir = fs::read_dir(current).map_err(|e| format!("Failed to read directory: {}", e))?;
     for item in read_dir {
-        let item = item.map_err(|e| format!("读取目录条目失败: {}", e))?;
+        let item = item.map_err(|e| format!("Failed to read directory entry: {}", e))?;
         let path = item.path();
         let name = item.file_name().to_string_lossy().to_string();
         if name == ".ai-organizer-undo.json" {
@@ -52,11 +52,11 @@ fn scan_level(
 
         let metadata = item
             .metadata()
-            .map_err(|e| format!("读取元数据失败 {}: {}", path.display(), e))?;
+            .map_err(|e| format!("Failed to read metadata {}: {}", path.display(), e))?;
         let is_dir = metadata.is_dir();
         let relative_path = path
             .strip_prefix(base)
-            .map_err(|e| format!("计算相对路径失败: {}", e))?
+            .map_err(|e| format!("Failed to compute relative path: {}", e))?
             .to_string_lossy()
             .replace('\\', "/");
         let extension = path

@@ -9,9 +9,10 @@ pub async fn analyze_with_ai(
     tree: DirTree,
     api_key: String,
     model: String,
+    lang: Option<String>,
 ) -> Result<AiPlan, String> {
     if api_key.trim().is_empty() {
-        return Err("请先在设置中填写 Anthropic API Key".to_string());
+        return Err("Please enter your Anthropic API Key in Settings".to_string());
     }
 
     let model = if model.trim().is_empty() {
@@ -20,7 +21,14 @@ pub async fn analyze_with_ai(
         model.trim().to_string()
     };
 
-    let _ = app.emit("ai_output", "正在准备目录摘要...");
+    let use_chinese = lang.as_deref().unwrap_or("en-US").starts_with("zh");
+    let lang_instruction = if use_chinese {
+        "Write the \"description\" field in Simplified Chinese."
+    } else {
+        "Write the \"description\" field in English."
+    };
+
+    let _ = app.emit("ai_output", r#"{"key":"event.ai.preparing"}"#);
     let compact_entries: Vec<_> = tree
         .entries
         .iter()
@@ -38,22 +46,23 @@ pub async fn analyze_with_ai(
         })
         .collect();
 
-    let system = r#"你是文件整理专家。你必须只输出严格 JSON，不要输出 Markdown。
-JSON 结构必须是：
-{
-  "description": "简短说明整理策略",
+    let system = format!(r#"You are a file organization expert. Output only strict JSON, no Markdown.
+JSON structure must be:
+{{
+  "description": "brief strategy description",
   "operations": [
-    {"type": "mkdir", "path": "Documents"},
-    {"type": "move", "from": "a.txt", "to": "Documents/a.txt"},
-    {"type": "rename", "from": "old.txt", "to": "new.txt"}
+    {{"type": "mkdir", "path": "Documents"}},
+    {{"type": "move", "from": "a.txt", "to": "Documents/a.txt"}},
+    {{"type": "rename", "from": "old.txt", "to": "new.txt"}}
   ]
-}
-规则：
-- 所有路径必须是相对用户所选目录的相对路径。
-- 不允许使用绝对路径、..、~、空路径或目录外路径。
-- 只规划 mkdir、move、rename，不要删除文件。
-- 不确定时保持保守，宁可少移动。
-- 避免覆盖已有文件，目标路径要清晰且可读。"#;
+}}
+Rules:
+- All paths must be relative to the user-selected directory.
+- Absolute paths, .., ~, empty paths, or paths outside the base directory are not allowed.
+- Only plan mkdir, move, rename operations. Never delete files.
+- When in doubt, be conservative and move fewer files.
+- Avoid overwriting existing files; destination paths must be clear and readable.
+- {}"#, lang_instruction);
 
     let user = json!({
         "base_dir": tree.base_dir,
@@ -62,7 +71,7 @@ JSON 结构必须是：
         "entries": compact_entries,
     });
 
-    let _ = app.emit("ai_output", format!("正在调用 Anthropic 模型: {}", model));
+    let _ = app.emit("ai_output", json!({"key": "event.ai.calling_model", "params": {"model": &model}}).to_string());
     let client = Client::new();
     let response = client
         .post("https://api.anthropic.com/v1/messages")
@@ -76,27 +85,27 @@ JSON 结构必须是：
             "messages": [
                 {
                     "role": "user",
-                    "content": format!("请分析这个目录并返回整理计划 JSON：\n{}", user)
+                    "content": format!("Analyze this directory and return the organization plan as JSON:\n{}", user)
                 }
             ]
         }))
         .send()
         .await
-        .map_err(|e| format!("请求 Anthropic API 失败: {}", e))?;
+        .map_err(|e| format!("Anthropic API request failed: {}", e))?;
 
     let status = response.status();
     let body = response
         .text()
         .await
-        .map_err(|e| format!("读取 AI 响应失败: {}", e))?;
+        .map_err(|e| format!("Failed to read AI response: {}", e))?;
 
     if !status.is_success() {
-        let _ = app.emit("ai_output", format!("AI 请求失败: {}", status));
-        return Err(format!("Anthropic API 返回 {}: {}", status, body));
+        let _ = app.emit("ai_output", json!({"key": "event.ai.request_failed", "params": {"status": status.as_u16()}}).to_string());
+        return Err(format!("Anthropic API returned {}: {}", status, body));
     }
 
     let value: serde_json::Value =
-        serde_json::from_str(&body).map_err(|e| format!("解析 Anthropic 响应失败: {}", e))?;
+        serde_json::from_str(&body).map_err(|e| format!("Failed to parse Anthropic response: {}", e))?;
     let text = value["content"]
         .as_array()
         .and_then(|items| {
@@ -107,14 +116,11 @@ JSON 结构必须是：
                 .first()
                 .map(|s| (*s).to_string())
         })
-        .ok_or_else(|| "Anthropic 响应中没有文本内容".to_string())?;
+        .ok_or_else(|| "No text content in Anthropic response".to_string())?;
 
-    let _ = app.emit("ai_output", "AI 已返回整理方案，正在解析 JSON...");
+    let _ = app.emit("ai_output", r#"{"key":"event.ai.parsing"}"#);
     let plan = parse_plan_text(&text)?;
-    let _ = app.emit(
-        "ai_output",
-        format!("整理方案解析完成，共 {} 个操作。", plan.operations.len()),
-    );
+    let _ = app.emit("ai_output", json!({"key": "event.ai.parsed", "params": {"count": plan.operations.len()}}).to_string());
     Ok(plan)
 }
 
@@ -125,10 +131,10 @@ fn parse_plan_text(text: &str) -> Result<AiPlan, String> {
 
     let start = text
         .find('{')
-        .ok_or_else(|| "AI 响应不是 JSON：找不到起始 {".to_string())?;
+        .ok_or_else(|| "AI response is not JSON: missing opening {".to_string())?;
     let end = text
         .rfind('}')
-        .ok_or_else(|| "AI 响应不是 JSON：找不到结束 }".to_string())?;
+        .ok_or_else(|| "AI response is not JSON: missing closing }".to_string())?;
     serde_json::from_str::<AiPlan>(&text[start..=end])
-        .map_err(|e| format!("解析整理计划 JSON 失败: {}", e))
+        .map_err(|e| format!("Failed to parse plan JSON: {}", e))
 }
